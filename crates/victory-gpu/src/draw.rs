@@ -1346,7 +1346,6 @@ impl State {
 
     /// As [`State::prepare`], for draws (`mesh` false) or mesh dispatches.
     fn prepare_for(&mut self, list: &HostList, indexed: bool, mesh: bool) -> bool {
-        #[cfg(feature = "diagnostics")]
         if crate::pipeline::is_skipped(self.pipeline as This) {
             return false;
         }
@@ -1934,6 +1933,16 @@ impl State {
         static FRAME: AtomicU64 = AtomicU64::new(u64::MAX);
         let frame = crate::frame::current();
         if FRAME.swap(frame, Ordering::Relaxed) == frame {
+            return Some(gpu);
+        }
+        static HEAP_BUF_INTERVAL: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+        let heap_buf_interval = *HEAP_BUF_INTERVAL.get_or_init(|| {
+            std::env::var("VICTORY_HEAP_BUFFER_INTERVAL")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(1)
+        });
+        if heap_buf_interval > 1 && !frame.is_multiple_of(heap_buf_interval) {
             return Some(gpu);
         }
         let started = std::time::Instant::now();
@@ -2638,7 +2647,6 @@ impl State {
     pub(crate) fn dispatch(&mut self, list: &HostList, x: u32, y: u32, z: u32, flags: u32) {
         // It may write the arguments a window holds clamped.
         self.window = None;
-        #[cfg(feature = "diagnostics")]
         if crate::pipeline::is_skipped(self.pipeline as This) {
             DROPPED.fetch_add(1, Ordering::Relaxed);
             crate::pipeline::note_drop(self.pipeline as This);
@@ -3804,7 +3812,6 @@ impl State {
         count: Option<u64>,
     ) -> bool {
         // Skip before the argument clamp can mutate the indirect buffer.
-        #[cfg(feature = "diagnostics")]
         if crate::pipeline::is_skipped(self.pipeline as This) {
             crate::pipeline::note_drop(self.pipeline as This);
             return false;

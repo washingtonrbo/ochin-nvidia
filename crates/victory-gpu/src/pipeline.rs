@@ -483,8 +483,8 @@ pub(crate) fn making() -> u64 {
 static DROPS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
 
 /// Shader hashes as printed in the pipeline diagnostics.
-#[cfg(all(windows, feature = "diagnostics"))]
-fn parse_skip_hashes(value: &str) -> Vec<String> {
+#[cfg(windows)]
+fn parse_skip_hashes(value: &str) -> std::collections::HashSet<String> {
     value
         .split(',')
         .map(str::trim)
@@ -503,9 +503,9 @@ fn parse_skip_hashes(value: &str) -> Vec<String> {
         .collect()
 }
 
-#[cfg(all(windows, feature = "diagnostics"))]
+#[cfg(windows)]
 fn skipped_shader(p: &Pipeline) -> Option<&str> {
-    static HASHES: OnceLock<Vec<String>> = OnceLock::new();
+    static HASHES: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
     let hashes = HASHES.get_or_init(|| {
         let value = std::env::var("VICTORY_SKIP_PIPELINES").unwrap_or_default();
         parse_skip_hashes(&value)
@@ -519,9 +519,14 @@ fn skipped_shader(p: &Pipeline) -> Option<&str> {
         .map(|shader| shader.hash.as_str())
 }
 
-#[cfg(all(windows, feature = "diagnostics"))]
+#[cfg(windows)]
 pub(crate) fn is_skipped(this: This) -> bool {
     !this.is_null() && skipped_shader(pipeline(this)).is_some()
+}
+
+#[cfg(not(windows))]
+pub(crate) fn is_skipped(_this: This) -> bool {
+    false
 }
 
 /// Counts a draw or dispatch of `this` intentionally skipped or dropped
@@ -540,6 +545,9 @@ pub(crate) fn note_drop(this: This) {
         note_why(why);
     }
 }
+
+#[cfg(not(all(windows, feature = "diagnostics")))]
+pub(crate) fn note_drop(_this: This) {}
 
 /// Counts a draw or dispatch dropped for `why` (diagnostics).
 #[cfg(all(windows, feature = "diagnostics"))]

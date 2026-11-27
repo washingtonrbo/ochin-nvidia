@@ -47,16 +47,17 @@ if ($totalRamGb -ge 24) {
     # 32 GB RAM Mode: Massive headroom, zero aggressive eviction, large staging queues
     if (-not $PSBoundParameters.ContainsKey('WindowsBarMB')) { $WindowsBarMB = 4096 }
     if (-not $PSBoundParameters.ContainsKey('CardBuffersMb')) { $CardBuffersMb = 1536 }
-    $env:VICTORY_TEXTURE_STAGE_MB = "1024"
+    $env:VICTORY_TEXTURE_STAGE_MB = "2048"
     $env:VICTORY_EVICT_COLD = "0"
-    $env:VICTORY_EVICT_SPAN_MS = "30000"
-    $env:VICTORY_EVICT_BYTES_MB = "1024"
+    $env:VICTORY_EVICT_SPAN_MS = "60000"
+    $env:VICTORY_EVICT_BYTES_MB = "2048"
     $env:VICTORY_PASSES_HOT = "1"
     $env:VICTORY_TEXSPK_PASS_MS = "8"
     $env:VICTORY_SLOT_EVICT = "0"
     $env:VICTORY_ALLOCATOR_TRIM = "0"
     $env:VICTORY_BUDGET_PACK = "0"
-    $env:VICTORY_TEXTURE_BUDGET_MB = "3200"
+    Remove-Item "Env:VICTORY_TEXTURE_BUDGET_MB" -ErrorAction SilentlyContinue
+    $env:VICTORY_TEXTURE_ROOM_PERCENT = "92"
     $env:VICTORY_CARD_ROOM_FOR_TARGETS_MB = "600"
 } else {
     # 16 GB RAM Mode: Flat ~4.4 GB memory cap
@@ -65,6 +66,7 @@ if ($totalRamGb -ge 24) {
     $env:VICTORY_EVICT_SPAN_MS = "1000"
     $env:VICTORY_EVICT_BYTES_MB = "128"
     $env:VICTORY_TEXTURE_BUDGET_MB = "2500"
+    $env:VICTORY_TEXTURE_ROOM_PERCENT = "90"
     $env:VICTORY_CARD_ROOM_FOR_TARGETS_MB = "450"
 }
 
@@ -120,9 +122,12 @@ $env:VICTORY_BAKE_SOURCES = "1"
 $env:VICTORY_BAKE_EXACT = "1"
 
 # Texture streaming throughput and quick recovery (eliminates wax doll / delayed skin textures)
-$env:VICTORY_TEXTURE_STAGE_MS = "400"
-$env:VICTORY_EARLY_TEXTURES_MS = "32"
-$env:VICTORY_RELOOK_MS = "2000"
+$env:VICTORY_TEXTURE_STAGE_MS = "600"
+$env:VICTORY_EARLY_TEXTURES_MS = "64"
+$env:VICTORY_RELOOK_MS = "1000"
+$env:VICTORY_TEXTURE_FILL = "1"
+$env:VICTORY_TEXTURE_CATCHUP = "1"
+$env:VICTORY_TEXTURE_HOT = "1"
 
 # Picture fixes, lighting and anti-black-texture controls
 $env:VICTORY_KEEP_SHOWN = "1"

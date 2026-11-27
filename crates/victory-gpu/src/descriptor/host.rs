@@ -2249,6 +2249,19 @@ impl HostHeap {
         self.mirror(index, handle, true);
     }
 
+    /// Looks up `(view, key)` for slot `index` prior to a synchronous bake
+    /// upload without replacing its current host descriptor with `neutral()`;
+    /// [`HostHeap::publish_uploaded_slot`] exposes the real descriptor and
+    /// updates `Spans`/stride tracking once the GPU copy finishes.
+    pub(crate) fn prepare_bake_slot(&self, index: u32, handle: u64) -> Option<(View, u64)> {
+        if index >= self.count {
+            return None;
+        }
+        let key = record_key(handle);
+        let view = (key != 0).then(|| view_at(key as u32, (key >> 32) as u32)).flatten()?;
+        Some((view, key))
+    }
+
     fn flip(&self, list: &crate::host::HostList, index: u32, handle: u64, late: Option<u64>) {
         let (heap, key) = (std::ptr::from_ref(self) as usize, record_key(handle));
         list.defer_host(move || {

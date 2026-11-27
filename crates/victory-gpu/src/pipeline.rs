@@ -749,10 +749,21 @@ pub(crate) extern "system" fn create_stream(
             );
             break;
         };
+        if size > desc.size - at {
+            tracing::warn!(
+                kind,
+                at,
+                size,
+                total = desc.size,
+                "truncated pipeline subobject; the rest is ignored"
+            );
+            break;
+        }
         if let Some(stage) = stage {
-            // SAFETY: a shader subobject has its bytecode at +8.
-            let code = unsafe { &*desc.stream.add(at + 8).cast::<Bytecode>() };
-            shaders.extend(copy(stage, code));
+            // SAFETY: `at + size <= desc.size` and shader subobjects have
+            // `size == 24` with their `Bytecode` at +8.
+            let code = unsafe { desc.stream.add(at + 8).cast::<Bytecode>().read_unaligned() };
+            shaders.extend(copy(stage, &code));
         }
         #[cfg(windows)]
         // SAFETY: a whole subobject of this kind lies at `at`.
@@ -940,5 +951,42 @@ mod tests {
                 (1, 28)
             );
         }
+    }
+
+    #[test]
+    fn truncated_pipeline_stream_is_not_read_past_size() {
+        let vs = [1u8, 2, 3, 4];
+        let mut buf = [0u8; 40];
+        let put = |buf: &mut [u8], at: usize, v: u64| buf[at..at + 8].copy_from_slice(&v.to_le_bytes());
+
+        // Vertex shader subobject (kind 1, size 24), truncated to 8 bytes.
+        put(&mut buf, 0, 1);
+        put(&mut buf, 8, vs.as_ptr() as u64);
+        put(&mut buf, 16, vs.len() as u64);
+        let desc = StreamDesc {
+            size: 8,
+            stream: buf.as_ptr(),
+        };
+        let mut p = std::ptr::null();
+        assert_eq!(create_stream(std::ptr::null(), &desc, &PIPELINE_IIDS[0], &mut p), S_OK);
+        assert!(shaders(p).is_empty());
+        release(p);
+
+        // Render-target formats subobject (kind 15, size 40), truncated to 8 bytes.
+        buf.fill(0);
+        put(&mut buf, 0, 15 | (28u64 << 32));
+        put(&mut buf, 32, 1u64 << 32);
+        let desc = StreamDesc {
+            size: 8,
+            stream: buf.as_ptr(),
+        };
+        let mut p = std::ptr::null();
+        assert_eq!(create_stream(std::ptr::null(), &desc, &PIPELINE_IIDS[0], &mut p), S_OK);
+        #[cfg(windows)]
+        {
+            let g = pipeline(p).host.graphics.as_deref().unwrap();
+            assert_eq!(g.targets.NumRenderTargets, 0);
+        }
+        release(p);
     }
 }

@@ -577,6 +577,10 @@ impl Work for Job {
                     super::show(&texture.texture, state, shown);
                 }
                 QUEUED.fetch_sub(1, Relaxed);
+                // The lists behind it are the ones sent next: none is held
+                // back any more.
+                PRESENTS_GONE[1].fetch_add(1, Relaxed);
+                crate::list::thin::moved();
             }
         }
         STATS[BUSY].fetch_add(began.elapsed().as_micros() as u64, Relaxed);
@@ -584,6 +588,16 @@ impl Work for Job {
 }
 
 static LANE: Lane<Job> = Lane::new();
+
+/// Presents put in the line since the start, and those that have gone: a
+/// submission put in when as many had been put as have gone now has no
+/// present before it in the line ([`crate::list::thin`]'s gate).
+static PRESENTS_GONE: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+
+/// [`PRESENTS_GONE`].
+pub(super) fn presents() -> (u64, u64) {
+    (PRESENTS_GONE[0].load(Relaxed), PRESENTS_GONE[1].load(Relaxed))
+}
 
 /// Submissions and presents in the line that have not been given to the host
 /// yet.
@@ -814,6 +828,7 @@ pub(super) fn wait(this: This, fence: This, value: u64) {
 pub(super) fn present(this: This, texture: Option<(std::sync::Arc<crate::resource::HostTexture>, u32)>, shown: super::Shown) {
     QUEUED.fetch_add(1, Relaxed);
     STATS[PRESENTS].fetch_add(1, Relaxed);
+    PRESENTS_GONE[0].fetch_add(1, Relaxed);
     LANE.push(this as usize, [Job::Present(texture, shown)]);
     let began = Instant::now();
     let _waiting = crate::timeline::span("a present waits for the one before it to be sent");

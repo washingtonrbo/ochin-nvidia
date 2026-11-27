@@ -171,6 +171,63 @@ static BACKS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 /// recordings let go of in the middle.
 static CHUNKS: AtomicU64 = AtomicU64::new(0);
 static STATS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+/// Recordings held back ([`gate`]), the oldest first, and how many: they are
+/// among neither [`READY`] nor the threads, and stay `scheduled`.
+static PARKED: Mutex<Vec<Arc<Recording>>> = Mutex::new(Vec::new());
+static PARKED_N: AtomicU64 = AtomicU64::new(0);
+/// Submitted recordings not translated to their end.
+static PENDING: AtomicU64 = AtomicU64::new(0);
+/// Since the last line of the log: recordings held back, and the
+/// microseconds they were.
+static HELD_BACK: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+/// A submitted recording is held back no longer than this, whatever the
+/// slots: the line of submissions may stand at it.
+const HELD_BACK_MOST_US: u64 = 250_000;
+
+/// Whether translation leaves the last dynamic descriptor slots to the lists
+/// that are sent first (on; `VICTORY_THIN_GATE=0`: every list takes what it
+/// finds, as before).
+///
+/// Why: a draw takes its tables' slots when it is translated, and gives them
+/// back when its list has run on the card. Translation runs ahead of the
+/// sending: the lists of the frame the title records now are translated
+/// while those of the frame before stand in the line of submissions. Run 413
+/// (9,000 to 11,500 draws a frame, ray tracing on): a frame takes 115,000 to
+/// 140,000 of the 262,144 slots, and whenever draws found none (15 of 106
+/// seconds; 15 to 340 draws a frame dropped), 247,000 to 256,000 were held by
+/// lists not taken for sending yet and 0 to 400 by lists on the card: two
+/// frames translated, none of them flying. The lists that are sent next
+/// could not have their slots, so nothing flew and nothing came back.
+///
+/// What changes: a recording waits, between two streams of its words, while
+/// slots are short, unless it is of the lists sent next: submitted, with no
+/// present before it in the line ([`gated`]). The title's threads wait for
+/// nothing new: their calls are written down as before. A recording held back
+/// is taken up again when its turn has come or slots came back (looked at
+/// once a millisecond).
+///
+/// Nothing can wait for good: the line stands only at recordings that were
+/// submitted; those before the oldest present in it are never held back, so
+/// that present goes, and the ones behind it are then the first. Slots come
+/// back as flights land, which needs none of the recordings held back. And a
+/// submitted recording is held back [`HELD_BACK_MOST_US`] at most, and not at
+/// all once a caller waits for it ([`Recording::wait`]).
+fn gate() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_THIN_GATE").is_none_or(|v| v != "0"))
+}
+
+/// Whether a recording is held back: `first`, it is of the lists sent next;
+/// `free` of `all` dynamic descriptor slots are free; `pending`, submitted
+/// lists are not translated yet. The others leave those a quarter of the
+/// slots, and five eighths while any of them is still translated (a frame
+/// took up to 140,000 of 262,144 at 11,500 draws, run 413).
+fn gated(first: bool, free: u32, all: u32, pending: bool) -> bool {
+    if first || all == 0 {
+        return false;
+    }
+    free < all / 4 || (pending && free < all / 8 * 5)
+}
 
 fn held<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -185,6 +242,14 @@ pub(crate) struct Recording {
     done: AtomicBool,
     moved: Condvar,
     abandoned: AtomicBool,
+    /// The title submitted it, when [`Recording::frame`] presents had been
+    /// put in the line of submissions.
+    submitted: AtomicBool,
+    frame: AtomicU64,
+    /// A caller waits for it ([`Recording::wait`]).
+    wanted: AtomicBool,
+    /// When it was first held back, in microseconds (0: it is not).
+    parked: AtomicU64,
 }
 
 #[derive(Default)]
@@ -198,6 +263,8 @@ struct Inner {
     back: usize,
     /// That list was closed by the stream.
     closed: bool,
+    /// Counted in [`PENDING`].
+    pending: bool,
 }
 
 impl Recording {
@@ -208,7 +275,49 @@ impl Recording {
             done: AtomicBool::new(false),
             moved: Condvar::new(),
             abandoned: AtomicBool::new(false),
+            submitted: AtomicBool::new(false),
+            frame: AtomicU64::new(0),
+            wanted: AtomicBool::new(false),
+            parked: AtomicU64::new(0),
         }
+    }
+
+    /// The title submitted it.
+    fn submit(&self) {
+        let mut inner = held(&self.inner);
+        self.frame.store(crate::queue::presents().0, Release);
+        self.submitted.store(true, Release);
+        if !self.done() && !inner.pending {
+            inner.pending = true;
+            PENDING.fetch_add(1, Relaxed);
+        }
+    }
+
+    /// Whether it leaves the dynamic descriptor slots to others for now
+    /// ([`gate`]). Asks no lock.
+    fn held_back(&self) -> bool {
+        if !gate() || self.abandoned.load(Acquire) || self.wanted.load(Acquire) {
+            return false;
+        }
+        let submitted = self.submitted.load(Acquire);
+        let first = submitted && crate::queue::presents().1 >= self.frame.load(Acquire);
+        let (free, all) = crate::descriptor::host::dynamic_room();
+        if !gated(first, free, all, PENDING.load(Relaxed) > 0) {
+            return false;
+        }
+        let since = self.parked.load(Relaxed);
+        !(submitted && since != 0 && crate::host::now_us().saturating_sub(since) > HELD_BACK_MOST_US)
+    }
+
+    /// Held back: put aside until [`unparked`] takes it up again.
+    fn park(self: &Arc<Self>) {
+        if self.parked.load(Relaxed) == 0 {
+            self.parked.store(crate::host::now_us().max(1), Relaxed);
+            HELD_BACK[0].fetch_add(1, Relaxed);
+        }
+        let mut parked = held(&PARKED);
+        parked.push(self.clone());
+        PARKED_N.store(parked.len() as u64, Relaxed);
     }
 
     pub(crate) fn done(&self) -> bool {
@@ -217,6 +326,9 @@ impl Recording {
 
     /// Waits until it is translated.
     pub(crate) fn wait(&self) {
+        // (Not held back while someone waits.)
+        self.wanted.store(true, Release);
+        moved();
         let mut inner = held(&self.inner);
         while !self.done() {
             inner = self.moved.wait(inner).unwrap_or_else(|e| e.into_inner());
@@ -228,15 +340,25 @@ impl Recording {
         held(&self.inner).back as This
     }
 
-    /// Translates what there is.
-    fn run(&self) {
+    /// Translates what there is, or puts itself aside if it is held back
+    /// ([`gate`]): between two streams, never inside one.
+    fn run(self: &Arc<Self>) {
         loop {
             let (chunk, back) = {
                 let mut inner = held(&self.inner);
+                if !inner.chunks.is_empty() && self.held_back() {
+                    drop(inner);
+                    self.park();
+                    return;
+                }
                 let Some(chunk) = inner.chunks.pop_front() else {
                     inner.scheduled = false;
                     return;
                 };
+                let since = self.parked.swap(0, Relaxed);
+                if since != 0 {
+                    HELD_BACK[1].fetch_add(crate::host::now_us().saturating_sub(since), Relaxed);
+                }
                 if inner.back == 0 {
                     inner.back = back_list(self.kind) as usize;
                 }
@@ -250,6 +372,9 @@ impl Recording {
             inner.kept.push(chunk);
             if closed {
                 inner.closed = true;
+                if std::mem::take(&mut inner.pending) {
+                    PENDING.fetch_sub(1, Relaxed);
+                }
                 let kept = std::mem::take(&mut inner.kept);
                 self.done.store(true, Release);
                 self.moved.notify_all();
@@ -265,6 +390,9 @@ impl Recording {
 impl Drop for Recording {
     fn drop(&mut self) {
         let inner = self.inner.get_mut().unwrap_or_else(|e| e.into_inner());
+        if std::mem::take(&mut inner.pending) {
+            PENDING.fetch_sub(1, Relaxed);
+        }
         give_back(inner.chunks.drain(..).chain(std::mem::take(&mut inner.kept)).collect());
         if inner.back != 0 {
             if !inner.closed {
@@ -306,13 +434,21 @@ fn start() {
             crate::cores::keep_many_on_fast_cores("victory-list");
             crate::queue::no_drain_here();
             loop {
-                let recording = {
+                // What was held back and is no longer, first: it is older.
+                let recording = loop {
+                    if let Some(r) = unparked() {
+                        break r;
+                    }
                     let mut ready = held(&READY);
-                    loop {
-                        match ready.pop_front() {
-                            Some(r) => break r,
-                            None => ready = WORK.wait(ready).unwrap_or_else(|e| e.into_inner()),
-                        }
+                    if let Some(r) = ready.pop_front() {
+                        break r;
+                    }
+                    if PARKED_N.load(Relaxed) > 0 {
+                        // (Looked at again: slots come back and presents go
+                        // without a word to this thread.)
+                        drop(WORK.wait_timeout(ready, std::time::Duration::from_millis(1)).unwrap_or_else(|e| e.into_inner()));
+                    } else {
+                        drop(WORK.wait(ready).unwrap_or_else(|e| e.into_inner()));
                     }
                 };
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| recording.run())).is_err() {
@@ -327,10 +463,30 @@ fn start() {
     tracing::info!(threads, "list calls are written down and translated by threads of ours (VICTORY_THIN=1)");
 }
 
+/// The first recording held back that is not any more ([`gate`]), taken out.
+fn unparked() -> Option<Arc<Recording>> {
+    if PARKED_N.load(Relaxed) == 0 {
+        return None;
+    }
+    let mut parked = held(&PARKED);
+    let at = parked.iter().position(|r| !r.held_back())?;
+    let recording = parked.remove(at);
+    PARKED_N.store(parked.len() as u64, Relaxed);
+    Some(recording)
+}
+
+/// Something a recording was held back for may have changed (a present has
+/// gone, a list was submitted or is waited for): the threads look.
+pub(crate) fn moved() {
+    if PARKED_N.load(Relaxed) > 0 {
+        WORK.notify_all();
+    }
+}
+
 /// The recordings of submitted lists, in order (one that was not begun is left
 /// out).
 pub(crate) fn submitted(lists: &[This]) -> Arc<[Arc<Recording>]> {
-    lists
+    let recordings: Arc<[Arc<Recording>]> = lists
         .iter()
         .filter(|l| !l.is_null())
         .filter_map(|&l| {
@@ -338,9 +494,13 @@ pub(crate) fn submitted(lists: &[This]) -> Arc<[Arc<Recording>]> {
             let front = unsafe { &mut (*l.cast_mut().cast::<List>()).thin };
             front.close();
             front.submitted = true;
-            front.recording.clone()
+            let recording = front.recording.clone()?;
+            recording.submit();
+            Some(recording)
         })
-        .collect()
+        .collect();
+    moved();
+    recordings
 }
 
 /// For the frame-rate line.
@@ -356,6 +516,15 @@ pub(crate) fn line(frames: f64) {
         s[2],
         CHUNKS.swap(0, Relaxed) as f64 / frames,
         s[3]
+    );
+    let h: Vec<f64> = HELD_BACK.iter().map(|h| h.swap(0, Relaxed) as f64 / frames).collect();
+    tracing::info!(
+        "lists whose translation was held back for dynamic descriptor slots, per frame (VICTORY_THIN_GATE=0: none are): \
+         {:.1}, {:.1} ms in all; held back now {}, submitted lists not translated yet {}",
+        h[0],
+        h[1] / 1000.0,
+        PARKED_N.load(Relaxed),
+        PENDING.load(Relaxed),
     );
 }
 
@@ -874,6 +1043,43 @@ mod tests {
                 "slot {slot} is written down and not there"
             );
         }
+    }
+
+    /// Who is held back for the dynamic descriptor slots, and who never is.
+    #[test]
+    fn the_gate_holds_back_all_but_the_lists_sent_next() {
+        let all = 262_144;
+        // The lists sent next: never, whatever is free.
+        assert!(!gated(true, 0, all, true));
+        // No heap has given a slot yet: nobody.
+        assert!(!gated(false, u32::MAX, 0, true));
+        // The others: under a quarter free, always.
+        assert!(gated(false, all / 4 - 1, all, false));
+        assert!(!gated(false, all / 4, all, false));
+        // While submitted lists are still translated: under five eighths.
+        assert!(gated(false, all / 8 * 5 - 1, all, true));
+        assert!(!gated(false, all / 8 * 5, all, true));
+        // A frame of 140,000 slots fits in what is left to the first lists.
+        assert!(all / 8 * 5 >= 140_000);
+    }
+
+    /// A recording held back is put aside once, stays scheduled, and is
+    /// taken up again by [`unparked`] when it is waited for.
+    #[test]
+    fn a_recording_put_aside_is_taken_up_again() {
+        let r = Arc::new(Recording::new(0));
+        held(&r.inner).scheduled = true;
+        r.park();
+        assert!(r.parked.load(Relaxed) != 0);
+        // Whatever the slots say, one that is waited for is not held back.
+        r.wanted.store(true, Release);
+        assert!(!r.held_back());
+        let mut mine = 0;
+        while let Some(taken) = unparked() {
+            mine += usize::from(Arc::ptr_eq(&taken, &r));
+        }
+        assert_eq!(mine, 1);
+        assert!(held(&r.inner).scheduled);
     }
 
     /// Arguments come out of a stream as they went in.

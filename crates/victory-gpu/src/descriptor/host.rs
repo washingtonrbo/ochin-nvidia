@@ -1546,6 +1546,22 @@ pub(crate) fn probe_view_limit() {
 /// table past them is made afresh in these slots like any other.
 pub(crate) const DYNAMIC: u32 = 1 << 18;
 
+/// For the gate of `crate::list::thin`: the title slots of the biggest view
+/// heap that took or gave back dynamic slots, and the dynamic slots it has
+/// free now (`u32::MAX`: none has yet).
+static DYNAMIC_FREE: [std::sync::atomic::AtomicU32; 2] =
+    [std::sync::atomic::AtomicU32::new(0), std::sync::atomic::AtomicU32::new(u32::MAX)];
+
+/// Total dynamic slots configured on that heap.
+static DYNAMIC_TOTAL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The dynamic slots free now in the title's view heap ([`DYNAMIC_FREE`]),
+/// and how many it has in all (0: none was asked for yet).
+pub(crate) fn dynamic_room() -> (u32, u32) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (DYNAMIC_FREE[1].load(Relaxed), DYNAMIC_TOTAL.load(Relaxed))
+}
+
 /// [`DYNAMIC`] for a heap of `count` title slots whose null slot is `null`
 /// (0: none): up to four times as many where the host heap has the room (a
 /// host that takes more than [`PORTABLE_VIEWS`]; `VICTORY_DYNAMIC_SLOTS`
@@ -1832,6 +1848,7 @@ impl HostHeap {
             if enough {
                 self.too_long.fetch_min(n as u32, std::sync::atomic::Ordering::Relaxed);
             }
+            self.note_room();
             static ONCE: std::sync::Once = std::sync::Once::new();
             ONCE.call_once(|| tracing::warn!(n, "no free dynamic descriptor slots: a table is not made"));
             #[cfg(feature = "diagnostics")]
@@ -1846,8 +1863,20 @@ impl HostHeap {
         crate::copystat::add(crate::copystat::C::DynamicNs, started.elapsed().as_nanos() as u64);
         taken[first..first + n].fill(true);
         self.free.fetch_sub(n as u32, std::sync::atomic::Ordering::Relaxed);
+        self.note_room();
         *next = ((first + n) % end) as u32;
         Some(self.count + first as u32)
+    }
+
+    /// Notes the dynamic slots free now ([`DYNAMIC_FREE`]), if no bigger
+    /// heap has noted its own. Under the lock of `next`.
+    fn note_room(&self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.count >= DYNAMIC_FREE[0].load(Relaxed) {
+            DYNAMIC_FREE[0].store(self.count, Relaxed);
+            DYNAMIC_FREE[1].store(self.free.load(Relaxed), Relaxed);
+            DYNAMIC_TOTAL.store(self.dynamic, Relaxed);
+        }
     }
 
     /// The title slots this heap has host slots for; fewer than the title's
@@ -2714,6 +2743,7 @@ impl HostHeap {
             self.free.fetch_add(given, std::sync::atomic::Ordering::Relaxed);
             self.too_long.store(u32::MAX, std::sync::atomic::Ordering::Relaxed);
             slots.fill(false);
+            self.note_room();
         }
     }
 

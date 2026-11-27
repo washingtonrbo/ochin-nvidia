@@ -62,6 +62,7 @@ $env:VICTORY_JOIN_PARTS = "8"
 $env:VICTORY_UPLOAD_AHEAD = "1"
 $env:VICTORY_TEXTURE_NO_WAIT = "1"
 $env:VICTORY_WAIT_RESIDENT = "0"
+$env:VICTORY_PRELUDE_POOL = "1"
 
 # Card buffers in VRAM (forces all buffers into card memory for hardware compare)
 $env:VICTORY_CARD_ROOM_FOR_BUFFERS = "1"

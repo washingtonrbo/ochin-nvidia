@@ -102,8 +102,10 @@ $env:VICTORY_AMBIENT = "0.85"
 $env:VICTORY_AMBIENT_SPECULAR = "0.75,0.0"
 $env:VICTORY_AMBIENT_AIR = "1.5"
 $env:VICTORY_AMBIENT_MOST = "2"
+$env:VICTORY_WATER_LIGHT = "1"
+$env:VICTORY_WATER_TILE_SLOTS = "1"
 $env:VICTORY_NAN_SCRUB = "1"
-$env:VICTORY_PIPELINE_WAIT_MS = "24"
+$env:VICTORY_PIPELINE_WAIT_MS = "48"
 $env:VICTORY_DYNAMIC_SLOTS = "524288"
 
 # Ray tracing completely disabled (BVH builder off, BVH ray walks abort at root, resolve passes dropped)

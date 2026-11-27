@@ -30,6 +30,7 @@ $env:VICTORY_CACHE_DIR = $Cache
 $env:VICTORY_DATA_DIR = $Data
 $env:VICTORY_DISPLAY_MODE = "$DisplayMode"
 $env:VICTORY_RESOLUTION = "$DisplayMode"
+$env:VICTORY_WINDOW_MAX = "$DisplayMode"
 $env:VICTORY_GAMEPAD_MOUSE = "1"
 if (-not $env:VICTORY_KEYS) {
     $env:VICTORY_KEYS = "25:Enter,30:Enter,35:Enter,40:Enter,45:Enter,50:Enter,55:Enter"

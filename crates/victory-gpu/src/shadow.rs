@@ -739,6 +739,14 @@ pub(crate) fn carded_copies() -> Vec<Arc<Shadow>> {
 
 /// Ranges in order, those that overlap or touch as one.
 fn joined(mut ranges: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    if ranges.len() < 2 {
+        return ranges;
+    }
+    // In order and apart already (what one stretch of them is): as they are,
+    // without the sort and the pass that joins.
+    if ranges.windows(2).all(|w| w[0].1 < w[1].0) {
+        return ranges;
+    }
     // (The sort that finds what is in order already: they come as a few
     // stretches of tens of thousands in order, put behind one another.)
     ranges.sort();
@@ -894,6 +902,12 @@ mod card_tests {
     fn ranges_join_where_they_touch() {
         assert_eq!(joined(vec![(8, 12), (0, 4), (4, 6), (10, 20), (30, 31)]), [(0, 6), (8, 20), (30, 31)]);
         assert!(joined(Vec::new()).is_empty());
+        // In order and apart: as they are. In order and touching, or out of
+        // order: joined as before.
+        assert_eq!(joined(vec![(0, 10), (20, 30), (40, 50)]), [(0, 10), (20, 30), (40, 50)]);
+        assert_eq!(joined(vec![(0, 10), (10, 20), (30, 40)]), [(0, 20), (30, 40)]);
+        assert_eq!(joined(vec![(0, 10), (5, 8), (30, 40)]), [(0, 10), (30, 40)]);
+        assert_eq!(joined(vec![(20, 30), (0, 10), (5, 25)]), [(0, 30)]);
     }
 }
 

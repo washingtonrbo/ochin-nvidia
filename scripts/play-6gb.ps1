@@ -37,7 +37,37 @@ if (-not $env:VICTORY_KEYS) {
     $env:VICTORY_KEYS = "25:Enter,30:Enter,35:Enter,40:Enter,45:Enter,50:Enter,55:Enter"
 }
 
-# 16 GB PC RAM optimization (keeps system RAM flat at ~4.4 GB via Resizable BAR)
+# Auto-detect System RAM and CPU threads
+$logicalCores = [Environment]::ProcessorCount
+$workerThreads = [Math]::Max(8, [Math]::Min(14, $logicalCores - 2))
+$totalRamGb = [Math]::Round((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize / 1MB)
+
+# 16 GB vs 32 GB RAM optimization
+if ($totalRamGb -ge 24) {
+    # 32 GB RAM Mode: Massive headroom, zero aggressive eviction, large staging queues
+    if (-not $PSBoundParameters.ContainsKey('WindowsBarMB')) { $WindowsBarMB = 4096 }
+    if (-not $PSBoundParameters.ContainsKey('CardBuffersMb')) { $CardBuffersMb = 1536 }
+    $env:VICTORY_TEXTURE_STAGE_MB = "1024"
+    $env:VICTORY_EVICT_COLD = "0"
+    $env:VICTORY_EVICT_SPAN_MS = "30000"
+    $env:VICTORY_EVICT_BYTES_MB = "1024"
+    $env:VICTORY_PASSES_HOT = "1"
+    $env:VICTORY_TEXSPK_PASS_MS = "8"
+    $env:VICTORY_SLOT_EVICT = "0"
+    $env:VICTORY_ALLOCATOR_TRIM = "0"
+    $env:VICTORY_BUDGET_PACK = "0"
+    $env:VICTORY_TEXTURE_BUDGET_MB = "3200"
+    $env:VICTORY_CARD_ROOM_FOR_TARGETS_MB = "600"
+} else {
+    # 16 GB RAM Mode: Flat ~4.4 GB memory cap
+    $env:VICTORY_TEXTURE_STAGE_MB = "256"
+    $env:VICTORY_EVICT_COLD = "1"
+    $env:VICTORY_EVICT_SPAN_MS = "1000"
+    $env:VICTORY_EVICT_BYTES_MB = "128"
+    $env:VICTORY_TEXTURE_BUDGET_MB = "2500"
+    $env:VICTORY_CARD_ROOM_FOR_TARGETS_MB = "450"
+}
+
 $env:VICTORY_WINDOWS_BAR_MB = "$WindowsBarMB"
 $env:VICTORY_SCRATCH_BAR = "1"
 
@@ -49,13 +79,13 @@ $env:VICTORY_WIDE_BACK = "1"
 $env:VICTORY_CARD_REHASH_RUNS = "1"
 $env:VICTORY_JOIN_COPIES = "1"
 $env:VICTORY_LAND = "1"
-$env:VICTORY_LAND_THREADS = "8"
+$env:VICTORY_LAND_THREADS = "$workerThreads"
 $env:VICTORY_LAND_SKIP = "1"
 $env:VICTORY_LAND_BESIDE = "1"
 $env:VICTORY_LAND_TAKEN = "1"
 $env:VICTORY_INDIRECT_WINDOW = "1"
 $env:VICTORY_INDIRECT_BATCH = "2"
-$env:VICTORY_MAP_THREADS = "auto"
+$env:VICTORY_MAP_THREADS = "$workerThreads"
 $env:VICTORY_TITLE_PRIORITIES = "0"
 $env:VICTORY_HELPER_PRIORITY = "1"
 $env:VICTORY_THREAD_TICKET = "1"
@@ -63,15 +93,16 @@ $env:VICTORY_RAW_VIEW_CLAMP = "1"
 $env:VICTORY_CARD_AWAKE = "1"
 $env:VICTORY_SHOW_AFTER = "1"
 $env:VICTORY_THIN = "1"
-$env:VICTORY_THIN_THREADS = "8"
+$env:VICTORY_THIN_THREADS = "$workerThreads"
 $env:VICTORY_THIN_GATE = "1"
-$env:VICTORY_JOIN_PARTS = "8"
+$env:VICTORY_JOIN_PARTS = "16"
 $env:VICTORY_REFRESH_FRONT = "1"
 $env:VICTORY_UPLOAD_AHEAD = "1"
 $env:VICTORY_TEXTURE_NO_WAIT = "1"
 $env:VICTORY_WAIT_RESIDENT = "0"
 $env:VICTORY_PRELUDE_POOL = "1"
 $env:VICTORY_PLACED_ORDER = "1"
+$env:VICTORY_PLACED_READS = "1"
 $env:VICTORY_HEAD_MAP_WAIT = "1"
 
 # Card buffers in VRAM (forces all buffers into card memory for hardware compare)
@@ -83,18 +114,12 @@ $env:VICTORY_INDIRECT_REST = "0"
 $env:VICTORY_HEAP_BUFFER_INTERVAL = "2"
 
 # VRAM headroom management and high-throughput streaming for 6GB GPUs
-$env:VICTORY_TEXTURE_BUDGET_MB = "2500"
 $env:VICTORY_TEXTURE_ROOM_PERCENT = "90"
-$env:VICTORY_CARD_ROOM_FOR_TARGETS_MB = "450"
 $env:VICTORY_BAKE_ROOM_PERCENT = "80"
 $env:VICTORY_BAKE_SOURCES = "1"
 $env:VICTORY_BAKE_EXACT = "1"
-$env:VICTORY_EVICT_COLD = "1"
-$env:VICTORY_EVICT_SPAN_MS = "1000"
-$env:VICTORY_EVICT_BYTES_MB = "128"
 
 # Texture streaming throughput and quick recovery (eliminates wax doll / delayed skin textures)
-$env:VICTORY_TEXTURE_STAGE_MB = "256"
 $env:VICTORY_TEXTURE_STAGE_MS = "400"
 $env:VICTORY_EARLY_TEXTURES_MS = "32"
 $env:VICTORY_RELOOK_MS = "2000"

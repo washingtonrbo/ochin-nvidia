@@ -13,8 +13,8 @@ param(
     [string]$Data = "$env:LOCALAPPDATA\ochin-nvidia\data",
     [string]$Exe = "$PSScriptRoot\..\target\release\victory.exe",
     [ValidateSet("series-s", "series-x")][string]$Console = "series-s",
-    [string]$Resolution = "480",
-    [string]$DisplayMode = "1280x720",
+    [string]$Resolution = "540",
+    [string]$DisplayMode = "960x540",
     [int]$WindowsBarMB = 3072,
     [int]$CardBuffersMb = 1024,
     [string]$Log = "$env:TEMP\ochin-nvidia-6gb.log"
@@ -95,6 +95,7 @@ $env:VICTORY_RELOOK_MS = "2000"
 # Picture fixes, lighting and anti-black-texture controls
 $env:VICTORY_KEEP_SHOWN = "1"
 $env:VICTORY_AMBIENT = "0.85"
+$env:VICTORY_AMBIENT_SPECULAR = "0.75,0.0"
 $env:VICTORY_AMBIENT_AIR = "1.5"
 $env:VICTORY_AMBIENT_MOST = "2"
 $env:VICTORY_NAN_SCRUB = "1"
@@ -106,12 +107,9 @@ $env:VICTORY_BVH_BUILDER = "0"
 $env:VICTORY_BVH_MISS = "1"
 
 # Upscaler and console preset
-if ($Resolution -eq "480" -or $Resolution -eq "854x480") {
-    $env:VICTORY_RENDER_SCALE = "0.4444"
-} else {
-    $env:VICTORY_RENDER_SCALE = "0.5"
-}
-$env:VICTORY_OWN_UPSCALER = "1"
+# Use native FSR temporal reconstruction (OWN_UPSCALER=0) to eliminate aliasing/serrilhado
+$env:VICTORY_RENDER_SCALE = "0.6667"
+$env:VICTORY_OWN_UPSCALER = "0"
 $env:VICTORY_COMPOSE = "1"
 $env:VICTORY_NO_WATCHDOG = "1"
 

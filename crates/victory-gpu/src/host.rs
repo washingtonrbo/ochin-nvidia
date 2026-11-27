@@ -1203,7 +1203,7 @@ pub(crate) struct HostList {
     twins: Mutex<std::collections::HashMap<usize, TwinUse>>,
     /// The list that runs those transitions just before this one, made
     /// when the list first has such transitions ([`lazy_prelude`]).
-    prelude: OnceLock<Option<Prelude>>,
+    prelude: prelude_pool::Slot,
     /// The pipelines the list binds, for reports of slow submissions.
     pipelines: std::sync::Arc<Mutex<std::collections::BTreeSet<String>>>,
     /// What its indirect executions ran, for the report of a removed device.
@@ -3721,6 +3721,7 @@ fn late_line(frames: f64) {
 
 pub(crate) mod aside;
 pub(crate) mod awake;
+mod prelude_pool;
 mod card_steps;
 pub(crate) mod indirects;
 #[cfg(feature = "diagnostics")]
@@ -4111,10 +4112,7 @@ impl Host {
                 &allocator,
                 None,
             )?;
-            let prelude = OnceLock::new();
-            if !lazy_prelude() {
-                let _ = prelude.set(self.make_prelude());
-            }
+            let prelude = prelude_pool::Slot::new(self);
             #[cfg(feature = "diagnostics")]
             let notes = std::sync::Arc::<Mutex<Vec<Note>>>::default();
             let pipelines = std::sync::Arc::<Mutex<std::collections::BTreeSet<String>>>::default();
@@ -6329,6 +6327,7 @@ impl HostList {
         if let Err(e) = reset {
             fail(format_args!("a host command list did not reset ({e})"));
         }
+        self.prelude.recycle(&prelude_pool::IDLE);
         #[cfg(feature = "diagnostics")]
         crate::copystat::add(crate::copystat::C::ResetNs, started.elapsed().as_nanos() as u64);
     }
@@ -6672,34 +6671,30 @@ impl HostList {
         if barriers.is_empty() && syncs.is_empty() {
             return None;
         }
-        let Some((allocator, list)) = self
-            .prelude
-            .get_or_init(|| host().and_then(|h| h.make_prelude()))
-            .as_ref()
-        else {
-            fail(format_args!("no host list for a state prelude"));
-        };
-        // SAFETY: the prelude is not executing (every submission is waited
-        // for); the textures are live.
-        let recorded = unsafe {
-            allocator.Reset().and_then(|()| {
-                list.Reset(allocator, None)?;
-                if !to_copy.is_empty() {
-                    list.ResourceBarrier(&to_copy);
+        self.prelude
+            .record(&prelude_pool::IDLE, |(allocator, list)| {
+                // SAFETY: the prelude is not executing and its textures are live.
+                let recorded = unsafe {
+                    allocator.Reset().and_then(|()| {
+                        list.Reset(allocator, None)?;
+                        if !to_copy.is_empty() {
+                            list.ResourceBarrier(&to_copy);
+                        }
+                        for (depth, twin, colour) in &syncs {
+                            record_twin_copy(list, &depth.texture, twin, *colour);
+                        }
+                        if !barriers.is_empty() {
+                            list.ResourceBarrier(&barriers);
+                        }
+                        list.Close()
+                    })
+                };
+                if let Err(e) = recorded {
+                    fail(format_args!("a host state prelude did not record ({e})"));
                 }
-                for (depth, twin, colour) in &syncs {
-                    record_twin_copy(list, &depth.texture, twin, *colour);
-                }
-                if !barriers.is_empty() {
-                    list.ResourceBarrier(&barriers);
-                }
-                list.Close()
+                list.cast().ok()
             })
-        };
-        if let Err(e) = recorded {
-            fail(format_args!("a host state prelude did not record ({e})"));
-        }
-        list.cast().ok()
+            .unwrap_or_else(|| fail(format_args!("no host list for a state prelude")))
     }
 
     /// Notes what the command about to be recorded does, as a marker

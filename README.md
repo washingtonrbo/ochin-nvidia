@@ -49,12 +49,11 @@ Code that is in this repository:
 - [Marvisak/VIctory](https://github.com/Marvisak/VIctory): the original
   compatibility layer under everything else (loader, runtime services,
   Direct3D 12 back end, shader recompiler).
-- [fxceless/victory-fork](https://github.com/fxceless/victory-fork) (formerly
-  victory-gta6): the fork the 7900 XTX one grew from, the Series S interface
+- [fxceless/victory-fork](https://github.com/fxceless/victory-fork): the fork the 7900 XTX one grew from, the Series S interface
   plane (pull request 1189, Tissma95), which fixed the black menus, and the face
   network fix (pull request 927, tippythetaidum), which made faces move.
 - victory-perf, carrying patches from
-  [ZigZagBoi1/ScarlettPort](https://github.com/ZigZagBoi1/ScarlettPort): the
+  [ZigZagBoi1/ConsolePort](https://github.com/ZigZagBoi1/ConsolePort): the
   title patches for render scale, the title's own upscaler and the watchdog.
 - Through the 7900 XTX fork:
   [DexNom/VIctory](https://github.com/DexNom/VIctory),
@@ -148,7 +147,7 @@ RTX 5070 12 GB with a Ryzen 7 9800X3D, in the prologue:
    title presents two planes: the game (1080p) and the interface (4K). Only the
    first was shown, so menus, loading screens and subtitles were black until
    gameplay. One compute pass now lays the interface over the game before it
-   is shown. Ported from fxceless/victory-gta6 pull request 1189 (Tissma95),
+   is shown. Ported from fxceless/victory-fork pull request 1189 (Tissma95),
    without its FSR stand-in (the own upscaler is used instead).
 10. **Title patches** (`crates/victory-loader/src/hooks.rs`, `lib.rs`,
     `windows.rs`): render scale, own upscaler, and `VICTORY_NO_WATCHDOG`
@@ -385,6 +384,14 @@ fills done on the card, textures on their own copy queue, texture read-back
 This is a tree of other people's work with more on top. The history is kept, and
 commits taken from elsewhere name the commit and its author.
 
+- **[ochin-nvidia](https://github.com/washingtonrbo/ochin-nvidia)** by **Washington (ochin)**:
+  16 GB RAM residency and 6 GB VRAM streaming optimizations, ReBAR window mapping,
+  engine limiter bypass (`VICTORY_FRAME_INTERVAL_MS`), per-heap descriptor view notifications,
+  head blend-shape prewarm, placed copy ordering, concurrent shader cache conversion sharing,
+  and the `play-6gb.ps1` mainstream preset.
+- **[trustno1-coder/VIctory-NVIDIA](https://github.com/trustno1-coder/VIctory-NVIDIA)**:
+  the upstream branch for NVIDIA optimizations, dynamic descriptor pool expansion,
+  and base profiling.
 - **[avatarmanz/VIctory-7900XTX](https://github.com/avatarmanz/VIctory-7900XTX)**:
   the fork this one started from, and everything in it.
 - **[VIctory](https://github.com/Marvisak/VIctory)** by Marvisak and its

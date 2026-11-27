@@ -1,4 +1,4 @@
-//! Ported from fxceless/victory-gta6 PR #1189 (Series S interface plane), `VICTORY_COMPOSE=1`.
+//! Ported from fxceless/victory-fork PR #1189 (Series S interface plane), `VICTORY_COMPOSE=1`.
 //! A present's second plane laid over its first.
 //!
 //! A Series S title presents two planes (run 2026-11-25: plane 0 the

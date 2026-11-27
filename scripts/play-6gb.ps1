@@ -101,6 +101,7 @@ $env:VICTORY_NO_WATCHDOG = "1"
 # Skip ray-tracing resolve shaders
 $rtList = Join-Path $PSScriptRoot "rt_off_hashes.txt"
 if (Test-Path $rtList) {
+    $env:VICTORY_SKIP_PIPELINES_FILE = $rtList
     $env:VICTORY_SKIP_PIPELINES = (Get-Content $rtList -Raw).Trim()
 }
 

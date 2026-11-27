@@ -486,7 +486,7 @@ static DROPS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
 #[cfg(windows)]
 fn parse_skip_hashes(value: &str) -> std::collections::HashSet<String> {
     value
-        .split(',')
+        .split(|c: char| c == ',' || c.is_ascii_whitespace())
         .map(str::trim)
         .filter(|hash| !hash.is_empty())
         .filter_map(|hash| {
@@ -507,8 +507,20 @@ fn parse_skip_hashes(value: &str) -> std::collections::HashSet<String> {
 fn skipped_shader(p: &Pipeline) -> Option<&str> {
     static HASHES: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
     let hashes = HASHES.get_or_init(|| {
-        let value = std::env::var("VICTORY_SKIP_PIPELINES").unwrap_or_default();
-        parse_skip_hashes(&value)
+        let mut list = std::env::var("VICTORY_SKIP_PIPELINES")
+            .map(|value| parse_skip_hashes(&value))
+            .unwrap_or_default();
+        for var in ["VICTORY_SKIP_PIPELINES_FILE", "VICTORY_DENY_PIPELINES_FILE"] {
+            if let Some(path) = std::env::var_os(var) {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    list.extend(parse_skip_hashes(&content));
+                }
+            }
+        }
+        if !list.is_empty() {
+            tracing::info!(skipped_pipelines = list.len(), "pipelines skipped from VICTORY_SKIP_PIPELINES / _FILE");
+        }
+        list
     });
     if hashes.is_empty() {
         return None;

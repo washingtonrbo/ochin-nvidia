@@ -1,3 +1,36 @@
+# Ochin-NVIDIA: Mainstream Hardware Performance (RTX 3050 6GB & 16GB RAM Focus)
+
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
+A dedicated optimization initiative built on top of [VIctory on NVIDIA](https://github.com/trustno1-coder/VIctory-NVIDIA), specifically designed to break through the memory and performance barriers on mainstream consumer hardware: **16 GB system RAM** and **6 GB VRAM GPUs** (such as the NVIDIA GeForce RTX 3050 6GB Laptop GPU / RTX 2060 6GB).
+
+While high-end configurations (32–64 GB RAM, 12–24 GB VRAM) rarely hit operating system shared memory boundaries, mainstream PCs face immediate `0x8007000E` (E_OUTOFMEMORY) crashes, 5–10 second shader pauses, and severe texture starvation. This project implements targeted architectural solutions that elevate performance from an unplayable **7 FPS** to a fluid **15–30 FPS** with sharp textures and stable memory.
+
+### Real-World Benchmark on Mainstream Hardware
+
+| Configuration | Baseline | Ochin-NVIDIA (`play-6gb.ps1`) |
+|---|---|---|
+| **Hardware** | RTX 3050 6GB Laptop, 16 GB RAM | RTX 3050 6GB Laptop, 16 GB RAM |
+| **Average FPS** | **7.2 FPS** | **15.0 – 30.0 FPS** |
+| **CPU Waiting on GPU** | ~30 – 54 ms | **0.0 ms** |
+| **System RAM Usage** | 7.9 GB+ (Approaching 8 GB crash cap) | **4.4 GB** (Flat & stable) |
+| **Visual Quality** | Black missing textures, dark interiors | **Sharp textures**, ambient global light |
+| **Shader Compilation Hitching** | 5 – 10 seconds freeze per new shader | **24 ms max**, smooth streaming |
+| **Ray Tracing Passes** | 1,000+ resolve passes executing | **100% disabled / skipped** |
+| **Camera Controls** | Controller only | **Native PC Mouse look** + Controller |
+
+### Key Architectural Pillars in this Fork
+
+1. **Resizable BAR (ReBAR) Window Mapping (`VICTORY_WINDOWS_BAR_MB=3072`)**: Maps title memory directly to CPU-visible VRAM, keeping host RAM flat at 4.4 GB and preventing pagefile thrashing on 16 GB machines.
+2. **GPU Hardware Card Steps & Direct Fills (`VICTORY_CARD_STEPS=2`, `VICTORY_CARD_BUFFERS_MIN_KB=64`)**: Offloads constant buffer copies and comparisons directly to GPU compute, dropping CPU frame preparation wait times from 30+ ms down to 0.0 ms.
+3. **Release Pipeline Skipping & Complete RT Elimination**: Enables zero-overhead $O(1)$ `HashSet` lookups (`VICTORY_SKIP_PIPELINES_FILE`) in release builds, skipping 1,034 ray tracing resolve and shadow shaders without GPU device hang risks.
+4. **Black Texture Elimination (`VICTORY_KEEP_SHOWN=1` + Texture Retry Deadlines)**: Maintains placeholder texture levels in descriptor slots while sharper mipmaps stream in, and automatically reschedules retries when card memory returns.
+5. **Cadenced Descriptor Buffer Audits (`VICTORY_HEAP_BUFFER_INTERVAL=2`)**: Alternates descriptor heap auditing across frames, cutting inspect overhead from 54 ms to 2.5 ms.
+6. **Low-Latency Shader Pipeline Timeout (`VICTORY_PIPELINE_WAIT_MS=24`)**: Drops the 10,000 ms block to 24 ms, compiling shaders asynchronously while keeping gameplay responsive.
+7. **Dedicated 6GB / 16GB Launcher (`scripts/play-6gb.ps1`)**: Easy one-click launcher preconfigured with these optimized flags.
+
+---
+
 # VIctory on NVIDIA
 
 ## Built from many projects

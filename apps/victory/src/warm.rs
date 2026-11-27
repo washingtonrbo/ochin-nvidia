@@ -31,6 +31,10 @@ pub fn run(jobs: Option<usize>, limit: Option<usize>, again: bool, used: bool, t
     if let Some(these) = these {
         return make(&dir, &these);
     }
+    if !dir.try_exists().with_context(|| format!("checking {}", dir.display()))? {
+        println!("0 pipelines known. Run the title with VICTORY_PIPELINE_BOOK=1 to record pipelines before warming.");
+        return Ok(());
+    }
     let began = Instant::now();
     victory_hle::known_pipelines::use_translations(dir.with_file_name("shaders"));
     let fingerprint = known::fingerprint();

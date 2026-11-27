@@ -453,7 +453,16 @@ pub(crate) fn host_pipeline<'a>(this: This) -> Option<&'a host::HostPipeline> {
     if this.is_null() {
         return None;
     }
-    make::ready(&pipeline(this).host)
+    make::ready(&pipeline(this).host, false)
+}
+
+/// A dispatch can depend on a producer the title runs only once.
+#[cfg(windows)]
+pub(crate) fn host_dispatch_pipeline<'a>(this: This) -> Option<&'a host::HostPipeline> {
+    if this.is_null() {
+        return None;
+    }
+    make::ready(&pipeline(this).host, true)
 }
 
 /// LOCAL (fxceless a35c557393): as [`host_pipeline`], for a draw into views
@@ -468,7 +477,7 @@ pub(crate) fn host_pipeline_for<'a>(this: This, bound: &host::TargetFormats) -> 
     if p.formats != *bound && host::formats_differ(&p.formats, bound) {
         return make::for_formats(p, bound);
     }
-    make::ready(p)
+    make::ready(p, false)
 }
 
 /// Host pipelines queued and not made yet.

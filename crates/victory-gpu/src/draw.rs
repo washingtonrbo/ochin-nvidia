@@ -2969,7 +2969,7 @@ impl State {
             }
             return;
         }
-        let Some(p) = crate::pipeline::host_pipeline(self.pipeline as This) else {
+        let Some(p) = crate::pipeline::host_dispatch_pipeline(self.pipeline as This) else {
             once!(
                 pipeline = format_args!("{:#x}", self.pipeline),
                 "a dispatch without a host pipeline dropped"
@@ -4178,9 +4178,15 @@ impl State {
         let why = |what: &str| crate::pipeline::note_why(format!("indirect kind {kind}: {what}"));
         #[cfg(not(feature = "diagnostics"))]
         let why = |_: &str| {};
-        let Some(p) = crate::pipeline::host_pipeline(self.pipeline as This) else {
+        let pipeline = self.pipeline as This;
+        let host = if kind == DISPATCH {
+            crate::pipeline::host_dispatch_pipeline(pipeline)
+        } else {
+            crate::pipeline::host_pipeline(pipeline)
+        };
+        let Some(p) = host else {
             #[cfg(feature = "diagnostics")]
-            crate::pipeline::note_drop(self.pipeline as This);
+            crate::pipeline::note_drop(pipeline);
             return false;
         };
         // Indirect rectangles (the title's tiled lighting, 256

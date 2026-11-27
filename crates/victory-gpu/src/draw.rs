@@ -24,6 +24,17 @@ use crate::host::HostList;
 use crate::object::This;
 use crate::pipeline::host::HostPipeline;
 
+/// The view heap precedes the sampler heap when both are bound. D3D12
+/// accepts only present heaps, which always occupy a contiguous slice here.
+fn descriptor_heap_bindings<T>(heaps: &[Option<T>; 2]) -> &[Option<T>] {
+    match heaps {
+        [Some(_), Some(_)] => heaps,
+        [Some(_), None] => &heaps[..1],
+        [None, Some(_)] => &heaps[1..],
+        [None, None] => &[],
+    }
+}
+
 /// A root argument as the title set it.
 #[derive(Debug, Clone, Default)]
 enum Root {
@@ -1532,16 +1543,25 @@ impl State {
         // Heaps first: a root signature with directly indexed heaps must be
         // set after them.
         if self.host_heaps != self.heaps {
-            let heaps: Vec<Option<ID3D12DescriptorHeap>> = self
-                .heaps
-                .iter()
-                .filter(|&&h| h != 0)
-                .filter_map(|&h| crate::descriptor::heap(h as This).host())
-                .map(|h| Some(h.heap.clone()))
-                .collect();
-            heaps.iter().flatten().for_each(|h| list.keep(h));
-            // SAFETY: an open list and shader-visible heaps.
-            unsafe { l.SetDescriptorHeaps(&heaps) };
+            let view_heap = if self.heaps[0] != 0 {
+                crate::descriptor::heap(self.heaps[0] as This).host().map(|h| h.heap.clone())
+            } else {
+                None
+            };
+            let sampler_heap = if self.heaps[1] != 0 {
+                crate::descriptor::heap(self.heaps[1] as This).host().map(|h| h.heap.clone())
+            } else {
+                None
+            };
+            let heaps = [view_heap, sampler_heap];
+            let bindings = descriptor_heap_bindings(&heaps);
+            for heap in bindings.iter().flatten() {
+                list.keep(heap);
+            }
+            if !bindings.is_empty() {
+                // SAFETY: an open list and shader-visible heaps.
+                unsafe { l.SetDescriptorHeaps(bindings) };
+            }
             self.host_heaps = self.heaps;
             self.host_roots = [0; 2];
         }
@@ -4867,7 +4887,15 @@ fn staging_budget_per_frame(vram_budget: Option<u64>) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::staging_budget_per_frame;
+    use super::{descriptor_heap_bindings, staging_budget_per_frame};
+
+    #[test]
+    fn descriptor_bindings_omit_empty_slots_and_preserve_heap_order() {
+        assert!(descriptor_heap_bindings::<u8>(&[None, None]).is_empty());
+        assert_eq!(descriptor_heap_bindings(&[Some(3), None]), &[Some(3)]);
+        assert_eq!(descriptor_heap_bindings(&[None, Some(7)]), &[Some(7)]);
+        assert_eq!(descriptor_heap_bindings(&[Some(3), Some(7)]), &[Some(3), Some(7)]);
+    }
 
     #[test]
     fn staging_budget_scales_with_vram_budget() {

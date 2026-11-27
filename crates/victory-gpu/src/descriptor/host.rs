@@ -743,6 +743,23 @@ pub(crate) static PAGE_WRITES: [std::sync::atomic::AtomicU64; 4] =
 /// two frames on takes those of the next frame with it.
 const PAGE_WRITE_AFTER: u64 = 2;
 
+const MAX_PENDING_TEXTURE_CHANGES: usize = 1 << 15;
+
+/// Keep every changed byte covered. At capacity a pair can span an unchanged
+/// gap, whose textures will also be checked at the next pass.
+fn compact_texture_changes(ranges: &mut Vec<(u64, u64)>, limit: usize) {
+    join(ranges);
+    while ranges.len() > limit {
+        let pairs = ranges.len().div_ceil(2);
+        for pair in 0..pairs {
+            let first = 2 * pair;
+            let last = (first + 1).min(ranges.len() - 1);
+            ranges[pair] = (ranges[first].0, ranges[last].1);
+        }
+        ranges.truncate(pairs);
+    }
+}
+
 /// The bytes of a write the guards do not see are in title memory `[at,
 /// at + len)`: the placed textures there changed with no descriptor
 /// written and nothing mapped. Kept for the next texture pass
@@ -750,8 +767,6 @@ const PAGE_WRITE_AFTER: u64 = 2;
 /// ranges; locks one mutex and calls nothing.
 pub(crate) fn page_written(at: usize, len: usize) {
     use std::sync::atomic::Ordering::Relaxed;
-    /// Ranges kept until a pass takes them.
-    const MOST: usize = 1 << 15;
     let (start, end) = (at as u64, at.saturating_add(len) as u64);
     if end <= SPANNED[0].load(Relaxed) || start >= SPANNED[1].load(Relaxed) {
         return;
@@ -764,9 +779,9 @@ pub(crate) fn page_written(at: usize, len: usize) {
         last.1 = end;
         return;
     }
-    if ranges.len() >= MOST {
+    if ranges.len() >= MAX_PENDING_TEXTURE_CHANGES {
         PAGE_WRITES[1].fetch_add(ranges.len() as u64, Relaxed);
-        ranges.clear();
+        compact_texture_changes(&mut ranges, MAX_PENDING_TEXTURE_CHANGES / 2);
     }
     ranges.push((start, end));
 }
@@ -812,8 +827,6 @@ fn stale_rule() -> Rule {
 /// locks held: this locks one mutex of its own and calls nothing.
 pub(crate) fn remapped(at: usize, len: usize) {
     use std::sync::atomic::Ordering::Relaxed;
-    /// Ranges kept until a pass takes them.
-    const MOST: usize = 1 << 15;
     let (start, end) = (at as u64, at.saturating_add(len) as u64);
     if end <= SPANNED[0].load(Relaxed) || start >= SPANNED[1].load(Relaxed) {
         return;
@@ -827,11 +840,9 @@ pub(crate) fn remapped(at: usize, len: usize) {
         last.1 = end;
         return;
     }
-    if ranges.len() >= MOST {
-        // No pass runs (no shader that picks textures by index is bound):
-        // the slots there are looked at when they are due, as before.
+    if ranges.len() >= MAX_PENDING_TEXTURE_CHANGES {
         STALE[2].fetch_add(ranges.len() as u64, Relaxed);
-        ranges.clear();
+        compact_texture_changes(&mut ranges, MAX_PENDING_TEXTURE_CHANGES / 2);
     }
     ranges.push((start, end));
 }
@@ -912,14 +923,9 @@ struct Waiting {
 /// Whether due texture slots are served in turns, a slot looked at before
 /// and one never looked at ([`TextureQueue::due`]; on unless
 /// `VICTORY_FAIR_DUE=0`).
-fn fair_due() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("VICTORY_FAIR_DUE").is_none_or(|v| v != "0"))
-}
-
-/// The pairs of slots due at `frame`: those looked at before (index 0)
-/// and those never looked at (index 1).
-type Due = [Vec<(u64, u32, u64)>; 2];
+/// Slots due of a [`TextureQueue`], of those looked at before and of the
+/// others: the slot and its write's number.
+type Due = [Vec<(u32, u64)>; 2];
 
 /// The queue of title slots whose texture view waits to be brought up to
 /// date for shaders that pick textures by index: which are due, and in
@@ -976,49 +982,47 @@ impl TextureQueue {
                 counts[1] += 1;
                 counts[4] = counts[4].max(frame.saturating_sub(w.written));
                 if collect_slots {
-                    due[usize::from(w.looks == 0 && w.mapped == 0)].push((w.written, index, w.write));
+                    due[usize::from(w.looks == 0 && w.mapped == 0)].push((index, w.write));
                 }
             }
         }
         (due, counts)
     }
 
-    /// What [`TextureQueue::due`] says of `due` (with nothing held: some
-    /// ten thousand slots are sorted).
+    /// Select a batch in service order after releasing the queue lock.
     fn in_order([mut again, mut fresh]: Due, max: usize) -> Vec<(u32, u64)> {
         // By the number of the write, counted over the run.
-        let newest_first = |a: &(u64, u32, u64), b: &(u64, u32, u64)| b.2.cmp(&a.2);
+        let newest_first = |a: &(u32, u64), b: &(u32, u64)| b.1.cmp(&a.1);
+        if again.len() > max {
+            again.select_nth_unstable_by(max, newest_first);
+            again.truncate(max);
+        }
         again.sort_unstable_by(newest_first);
+        let take = fresh.len().min(max - again.len());
+        if take == 0 {
+            return again;
+        }
+        // When a normal pass cannot serve the whole backlog, keep only the
+        // newest and oldest writes it will actually return.
+        if take < fresh.len() {
+            let newest = take.div_ceil(2);
+            let oldest = fresh.len() - take / 2;
+            fresh.select_nth_unstable_by(newest, newest_first);
+            if oldest < fresh.len() {
+                fresh[newest..].select_nth_unstable_by(oldest - newest, newest_first);
+            }
+            fresh.drain(newest..oldest);
+        }
         fresh.sort_unstable_by(newest_first);
-        let mut fresh_order: Vec<(u32, u64)> = Vec::with_capacity(fresh.len().min(max));
-        let (mut new, mut old) = (0, fresh.len());
-        while new < old && fresh_order.len() < max {
-            fresh_order.push((fresh[new].1, fresh[new].2));
-            new += 1;
-            if new < old && fresh_order.len() < max {
-                old -= 1;
-                fresh_order.push((fresh[old].1, fresh[old].2));
+        again.reserve(take);
+        let mut fresh = fresh.into_iter();
+        while let Some(newest) = fresh.next() {
+            again.push(newest);
+            if let Some(oldest) = fresh.next_back() {
+                again.push(oldest);
             }
         }
-        let mut again_order = again.iter().map(|&(_, index, write)| (index, write));
-        if !fair_due() {
-            let mut order: Vec<(u32, u64)> = again_order.collect();
-            order.extend(fresh_order);
-            order.truncate(max);
-            return order;
-        }
-        let mut fresh_order = fresh_order.into_iter();
-        let mut order = Vec::with_capacity(max.min(fresh.len() + again.len()));
-        while order.len() < max {
-            let (a, b) = (again_order.next(), fresh_order.next());
-            if a.is_none() && b.is_none() {
-                break;
-            }
-            order.extend(a);
-            order.extend(b);
-        }
-        order.truncate(max);
-        order
+        again
     }
 
     /// The entry of `index` if it is still the write the pass was handed.
@@ -5737,29 +5741,23 @@ void BY_FLOATS_OR_NOT(uint3 id : SV_DispatchThreadID) {
         assert_eq!(counts_only, counts);
     }
 
-    /// Slots looked at before and slots never looked at are served in
-    /// turns, one looked at before first: a pass that can take only some
-    /// of a backlog of slots streaming in a part at a time still reaches
-    /// the slots never looked at.
     #[test]
-    fn the_texture_queue_serves_looked_at_and_fresh_slots_in_turns() {
-        let mut q = TextureQueue::default();
-        // Slots 100..110 looked at before (their memory not there yet).
-        for i in 0..10u32 {
-            q.written(100 + i, 1, 0, false);
+    fn capped_texture_batches_match_the_full_service_order() {
+        let len = 32;
+        for retries in 0..=len {
+            let mut q = TextureQueue::default();
+            for i in 0..len {
+                let index = (i * 13) % len;
+                q.written(index, 1, 1, false);
+                if index < retries {
+                    q.later(index, q.slots[&index].write, 1, 1);
+                }
+            }
+            let full = q.due(2, usize::MAX);
+            for max in 0..=len as usize {
+                assert_eq!(q.due(2, max), full[..max], "{retries} retries, batch of {max}");
+            }
         }
-        for i in 0..10u32 {
-            let w = q.due(u64::MAX, 100).iter().find(|d| d.0 == 100 + i).unwrap().1;
-            q.later(100 + i, w, 1, 1);
-        }
-        // Slots 1..4 never looked at.
-        for i in 1..4u32 {
-            q.written(i, 2, 0, false);
-        }
-        let order: Vec<u32> = q.due(10, 6).into_iter().map(|d| d.0).collect();
-        assert_eq!(order.len(), 6);
-        assert!(order[0] >= 100, "a slot looked at before comes first: {order:?}");
-        assert_eq!(order.iter().filter(|&&i| i < 100).count(), 3, "every fresh slot is reached: {order:?}");
     }
     /// Slots held back for lack of room on the card are not handed out
     /// until their frame, keep their place, are not counted as waiting

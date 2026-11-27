@@ -108,9 +108,10 @@ $env:VICTORY_BVH_BUILDER = "0"
 $env:VICTORY_BVH_MISS = "1"
 
 # Upscaler and console preset
-# Use native FSR temporal reconstruction (OWN_UPSCALER=0) to eliminate aliasing/serrilhado
-$env:VICTORY_RENDER_SCALE = "0.6667"
-$env:VICTORY_OWN_UPSCALER = "0"
+# Use title's own temporal upscaler (OWN_UPSCALER=1) to eliminate FSR's 200ms compute pass overhead on RTX 3050
+$env:VICTORY_RENDER_SCALE = "0.5"
+$env:VICTORY_OWN_UPSCALER = "1"
+$env:VICTORY_SUBMIT_FRAMES = "2"
 $env:VICTORY_COMPOSE = "1"
 $env:VICTORY_NO_WATCHDOG = "1"
 

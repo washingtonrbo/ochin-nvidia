@@ -66,14 +66,20 @@ $env:VICTORY_CARD_BUFFERS_MB = "$CardBuffersMb"
 $env:VICTORY_INDIRECT_REST = "0"
 $env:VICTORY_HEAP_BUFFER_INTERVAL = "2"
 
-# VRAM headroom management for 6GB GPUs
-$env:VICTORY_TEXTURE_BUDGET_MB = "1800"
-$env:VICTORY_TEXTURE_ROOM_PERCENT = "88"
+# VRAM headroom management and high-throughput streaming for 6GB GPUs
+$env:VICTORY_TEXTURE_BUDGET_MB = "2500"
+$env:VICTORY_TEXTURE_ROOM_PERCENT = "90"
 $env:VICTORY_CARD_ROOM_FOR_TARGETS_MB = "450"
 $env:VICTORY_BAKE_ROOM_PERCENT = "80"
 $env:VICTORY_EVICT_COLD = "1"
 $env:VICTORY_EVICT_SPAN_MS = "1000"
 $env:VICTORY_EVICT_BYTES_MB = "128"
+
+# Texture streaming throughput and quick recovery (eliminates wax doll / delayed skin textures)
+$env:VICTORY_TEXTURE_STAGE_MB = "256"
+$env:VICTORY_TEXTURE_STAGE_MS = "400"
+$env:VICTORY_EARLY_TEXTURES_MS = "32"
+$env:VICTORY_RELOOK_MS = "2000"
 
 # Picture fixes, lighting and anti-black-texture controls
 $env:VICTORY_KEEP_SHOWN = "1"

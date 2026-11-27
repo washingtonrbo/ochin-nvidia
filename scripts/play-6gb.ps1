@@ -13,6 +13,7 @@ param(
     [string]$Data = "$env:LOCALAPPDATA\ochin-nvidia\data",
     [string]$Exe = "$PSScriptRoot\..\target\release\victory.exe",
     [ValidateSet("series-s", "series-x")][string]$Console = "series-s",
+    [double]$FrameIntervalMs = 0.0,
     [string]$Resolution = "540",
     [string]$DisplayMode = "960x540",
     [int]$WindowsBarMB = 3072,
@@ -111,6 +112,13 @@ $env:VICTORY_DYNAMIC_SLOTS = "524288"
 # Ray tracing completely disabled (BVH builder off, BVH ray walks abort at root, resolve passes dropped)
 $env:VICTORY_BVH_BUILDER = "0"
 $env:VICTORY_BVH_MISS = "1"
+
+# Frame pacing and internal engine limiter bypass (0 = uncap engine, or explicit ms interval e.g. 16.667 for 60fps)
+if ($PSBoundParameters.ContainsKey('FrameIntervalMs')) {
+    $env:VICTORY_FRAME_INTERVAL_MS = $FrameIntervalMs.ToString([Globalization.CultureInfo]::InvariantCulture)
+} else {
+    $env:VICTORY_FRAME_INTERVAL_MS = "0"
+}
 
 # Upscaler and console preset
 # Use title's own temporal upscaler (OWN_UPSCALER=1) to eliminate FSR's 200ms compute pass overhead on RTX 3050

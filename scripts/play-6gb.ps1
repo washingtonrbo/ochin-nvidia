@@ -191,5 +191,10 @@ if (-not $NoSmoothMotion) {
 }
 
 Write-Host "Iniciando ochin-nvidia (Series S preset, Executable: $(Split-Path -Leaf $targetExe), ReBAR Windows: ${WindowsBarMB}MB, Card Steps: 2, Relay: 2)..."
-cmd.exe /c "`"$targetExe`" run `"$Game`" --console $Console --execute > `"$Log`" 2>&1"
+Push-Location (Split-Path $targetExe)
+try {
+    cmd.exe /c "`"$targetExe`" run `"$Game`" --console $Console --execute > `"$Log`" 2>&1"
+} finally {
+    Pop-Location
+}
 Write-Host "Finalizado com código $LASTEXITCODE; log: $Log"

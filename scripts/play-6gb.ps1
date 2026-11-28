@@ -132,13 +132,16 @@ $env:VICTORY_TEXTURE_HOT = "1"
 # Picture fixes, lighting and anti-black-texture controls
 $env:VICTORY_KEEP_SHOWN = "1"
 $env:VICTORY_AMBIENT = "0.85"
-$env:VICTORY_AMBIENT_SPECULAR = "0.75,0.0"
+$env:VICTORY_AMBIENT_SPECULAR = "0.5,0.0"
 $env:VICTORY_AMBIENT_AIR = "1.5"
 $env:VICTORY_AMBIENT_MOST = "2"
 $env:VICTORY_WATER_LIGHT = "1"
 $env:VICTORY_WATER_TILE_SLOTS = "1"
 $env:VICTORY_NAN_SCRUB = "1"
-$env:VICTORY_PIPELINE_WAIT_MS = "48"
+$env:VICTORY_PIPELINE_WAIT_MS = "10000"
+$env:VICTORY_PIPELINE_WAIT_ONCE = "1"
+$env:VICTORY_FULL_CARD_PASS = "1"
+$env:VICTORY_REUPLOAD_WHEN_FULL = "1"
 $env:VICTORY_DYNAMIC_SLOTS = "524288"
 
 # Ray tracing completely disabled (BVH builder off, BVH ray walks abort at root, resolve passes dropped)

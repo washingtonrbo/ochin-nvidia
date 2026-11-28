@@ -14,7 +14,7 @@ param(
     [string]$Exe = "$PSScriptRoot\..\target\release\victory.exe",
     [ValidateSet("series-s", "series-x")][string]$Console = "series-s",
     [double]$FrameIntervalMs = 0.0,
-    [string]$Resolution = "480",
+    [string]$Resolution = "360",
     [string]$DisplayMode = "960x540",
     [switch]$NoSmoothMotion,
     [int]$WindowsBarMB = 3072,
@@ -133,7 +133,7 @@ $env:VICTORY_TEXTURE_HOT = "1"
 # Picture fixes, lighting and anti-black-texture controls
 $env:VICTORY_KEEP_SHOWN = "1"
 $env:VICTORY_AMBIENT = "0.85"
-$env:VICTORY_AMBIENT_SPECULAR = "0.5,0.0"
+$env:VICTORY_AMBIENT_SPECULAR = "0"
 $env:VICTORY_AMBIENT_AIR = "1.5"
 $env:VICTORY_AMBIENT_MOST = "2"
 $env:VICTORY_WATER_LIGHT = "1"

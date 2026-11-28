@@ -180,15 +180,8 @@ if (Test-Path $rtList) {
 $Exe = (Resolve-Path $Exe).Path
 $Game = (Resolve-Path $Game).Path
 
-# Auto-maintain and run victory_sm.exe for NVIDIA Smooth Motion support
+# Auto-maintain and run native victory.exe
 $targetExe = $Exe
-if (-not $NoSmoothMotion) {
-    $smExe = Join-Path (Split-Path $Exe) 'victory_sm.exe'
-    if (-not (Test-Path $smExe) -or (Get-Item $smExe).LastWriteTime -lt (Get-Item $Exe).LastWriteTime) {
-        Copy-Item $Exe $smExe -Force -ErrorAction SilentlyContinue
-    }
-    $targetExe = $smExe
-}
 
 Write-Host "Iniciando ochin-nvidia (Series S preset, Executable: $(Split-Path -Leaf $targetExe), ReBAR Windows: ${WindowsBarMB}MB, Card Steps: 2, Relay: 2)..."
 Push-Location (Split-Path $targetExe)

@@ -16,6 +16,7 @@ param(
     [double]$FrameIntervalMs = 0.0,
     [string]$Resolution = "480",
     [string]$DisplayMode = "960x540",
+    [switch]$NoSmoothMotion,
     [int]$WindowsBarMB = 3072,
     [int]$CardBuffersMb = 1024,
     [string]$Log = "$env:TEMP\ochin-nvidia-6gb.log"
@@ -179,12 +180,16 @@ if (Test-Path $rtList) {
 $Exe = (Resolve-Path $Exe).Path
 $Game = (Resolve-Path $Game).Path
 
-# Auto-maintain victory_sm.exe for Smooth Motion support
-$smExe = Join-Path (Split-Path $Exe) 'victory_sm.exe'
-if (-not (Test-Path $smExe) -or (Get-Item $smExe).LastWriteTime -lt (Get-Item $Exe).LastWriteTime) {
-    Copy-Item $Exe $smExe -Force -ErrorAction SilentlyContinue
+# Auto-maintain and run victory_sm.exe for NVIDIA Smooth Motion support
+$targetExe = $Exe
+if (-not $NoSmoothMotion) {
+    $smExe = Join-Path (Split-Path $Exe) 'victory_sm.exe'
+    if (-not (Test-Path $smExe) -or (Get-Item $smExe).LastWriteTime -lt (Get-Item $Exe).LastWriteTime) {
+        Copy-Item $Exe $smExe -Force -ErrorAction SilentlyContinue
+    }
+    $targetExe = $smExe
 }
 
-Write-Host "Iniciando ochin-nvidia (Series S preset, ReBAR Windows: ${WindowsBarMB}MB, Card Steps: 2, Relay: 2)..."
-cmd.exe /c "`"$Exe`" run `"$Game`" --console $Console --execute > `"$Log`" 2>&1"
+Write-Host "Iniciando ochin-nvidia (Series S preset, Executable: $(Split-Path -Leaf $targetExe), ReBAR Windows: ${WindowsBarMB}MB, Card Steps: 2, Relay: 2)..."
+cmd.exe /c "`"$targetExe`" run `"$Game`" --console $Console --execute > `"$Log`" 2>&1"
 Write-Host "Finalizado com código $LASTEXITCODE; log: $Log"

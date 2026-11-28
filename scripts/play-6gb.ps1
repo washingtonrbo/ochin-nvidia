@@ -157,7 +157,13 @@ if ($PSBoundParameters.ContainsKey('FrameIntervalMs')) {
 
 # Upscaler and console preset
 # Use title's own temporal upscaler (OWN_UPSCALER=1) to eliminate FSR's 200ms compute pass overhead on RTX 3050
-$env:VICTORY_RENDER_SCALE = "0.5"
+$outHeight = if ($Console -eq "series-x") { 2160 } else { 1080 }
+if ($Resolution) {
+    $scaleVal = [int]$Resolution / $outHeight
+    $env:VICTORY_RENDER_SCALE = $scaleVal.ToString('0.####', [Globalization.CultureInfo]::InvariantCulture)
+} else {
+    $env:VICTORY_RENDER_SCALE = "0.5"
+}
 $env:VICTORY_OWN_UPSCALER = "1"
 $env:VICTORY_SUBMIT_FRAMES = "2"
 $env:VICTORY_COMPOSE = "1"
@@ -172,6 +178,12 @@ if (Test-Path $rtList) {
 
 $Exe = (Resolve-Path $Exe).Path
 $Game = (Resolve-Path $Game).Path
+
+# Auto-maintain victory_sm.exe for Smooth Motion support
+$smExe = Join-Path (Split-Path $Exe) 'victory_sm.exe'
+if (-not (Test-Path $smExe) -or (Get-Item $smExe).LastWriteTime -lt (Get-Item $Exe).LastWriteTime) {
+    Copy-Item $Exe $smExe -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host "Iniciando ochin-nvidia (Series S preset, ReBAR Windows: ${WindowsBarMB}MB, Card Steps: 2, Relay: 2)..."
 cmd.exe /c "`"$Exe`" run `"$Game`" --console $Console --execute > `"$Log`" 2>&1"

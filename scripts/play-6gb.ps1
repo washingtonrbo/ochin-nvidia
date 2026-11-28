@@ -177,6 +177,54 @@ if (Test-Path $rtList) {
     $env:VICTORY_SKIP_PIPELINES = (Get-Content $rtList -Raw).Trim()
 }
 
+# Streamline (DLSS) and FidelityFX (FSR 3 Frame Generation) SDK folders
+$streamlineDir = Join-Path (Split-Path $Exe) "Streamline\bin\x64"
+if (-not (Test-Path $streamlineDir)) {
+    $streamlineDir = "$env:LOCALAPPDATA\victory\nvidia-sdk\Streamline\bin\x64"
+}
+if (Test-Path $streamlineDir) {
+    $env:VICTORY_STREAMLINE_DIR = $streamlineDir
+}
+
+$fidelityfxDir = Join-Path (Split-Path $Exe) "fidelityfx"
+if (-not (Test-Path $fidelityfxDir)) {
+    $fidelityfxDir = "$env:LOCALAPPDATA\victory\amd-fidelityfx"
+}
+if (Test-Path $fidelityfxDir) {
+    $env:VICTORY_FIDELITYFX_DIR = $fidelityfxDir
+}
+
+# Persist 6GB VRAM tuning and anti-black controls to victory-settings.txt
+$settingsDir = "$env:LOCALAPPDATA\victory"
+if (-not (Test-Path $settingsDir)) {
+    New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
+}
+$settingsFile = Join-Path $settingsDir "victory-settings.txt"
+$settingsContent = @"
+VICTORY_KEEP_SHOWN=1
+VICTORY_TEXTURE_CATCHUP=1
+VICTORY_TEXTURE_STAGE_MS=600
+VICTORY_TEXTURE_STAGE_MB=2048
+VICTORY_TEXTURE_HOT=1
+VICTORY_TEXTURE_FILL=1
+VICTORY_WINDOWS_BAR_MB=4096
+VICTORY_CARD_ROOM_FOR_BUFFERS=1
+VICTORY_CARD_BUFFERS_MB=1536
+VICTORY_DYNAMIC_SLOTS=524288
+VICTORY_AMBIENT=0.85
+VICTORY_AMBIENT_SPECULAR=0.5,0.0
+VICTORY_AMBIENT_AIR=1.5
+VICTORY_AMBIENT_MOST=2
+VICTORY_WATER_LIGHT=1
+VICTORY_WATER_TILE_SLOTS=1
+VICTORY_NAN_SCRUB=1
+VICTORY_BVH_BUILDER=0
+VICTORY_BVH_MISS=1
+VICTORY_SKIP_PIPELINES_FILE=$rtList
+VICTORY_MFG_UNLOCKER=0
+"@
+[System.IO.File]::WriteAllText($settingsFile, $settingsContent)
+
 $Exe = (Resolve-Path $Exe).Path
 $Game = (Resolve-Path $Game).Path
 
@@ -186,7 +234,13 @@ $targetExe = $Exe
 Write-Host "Iniciando ochin-nvidia (Series S preset, Executable: $(Split-Path -Leaf $targetExe), ReBAR Windows: ${WindowsBarMB}MB, Card Steps: 2, Relay: 2)..."
 Push-Location (Split-Path $targetExe)
 try {
-    cmd.exe /c "`"$targetExe`" run `"$Game`" --console $Console --execute > `"$Log`" 2>&1"
+    # Check if executable supports upstream play subcommand (with native FSR 3 Frame Generation + DLSS)
+    $hasPlay = & "$targetExe" --help 2>&1 | Select-String "play\s+Play:" -Quiet
+    if ($hasPlay) {
+        & "$targetExe" play --series-s --res 1080to1440 --dlss quality --framegen 2 --fg-type fsr --fps 1000 "$Game"
+    } else {
+        cmd.exe /c "`"$targetExe`" run `"$Game`" --console $Console --execute > `"$Log`" 2>&1"
+    }
 } finally {
     Pop-Location
 }
